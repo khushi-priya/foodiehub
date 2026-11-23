@@ -1,0 +1,35 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "test:categories": "node scripts/food-category-workflow-smoke.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test:db": "node src/config/testDatabase.js",
+    "bootstrap:admin": "node src/scripts/createSuperAdmin.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "connect-session-sequelize": "^8.0.6",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.24.6",
+    "qrcode": "^1.5.4",
+    "razorpay": "^2.9.8",
+    "sequelize": "^6.37.8",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "sequelize-cli": "^6.6.5"
+  }
+}
