@@ -4,7 +4,7 @@ const { Order, OrderItem, OrderRefund, User, Restaurant, Branch, RestaurantTable
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const send = (res, data, status = 200) => res.status(status).json({ success: true, data });
 const handle = (fn) => async (req, res, next) => { try { await fn(req, res); } catch (error) { next(error); } };
-const ORDER_STATUSES = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'];
+const ORDER_STATUSES = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'picked_up', 'out_for_delivery', 'completed', 'cancelled'];
 const PAYMENT_STATUSES = ['pending', 'paid', 'failed', 'refunded'];
 const ORDER_TYPES = ['delivery', 'takeaway', 'dine_in'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

@@ -71,6 +71,19 @@ const Restaurant = sequelize.define(
       field: 'marketplace_enabled',
     },
 
+    qrToken: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      unique: true,
+      field: 'qr_token',
+    },
+
+    qrUrl: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      field: 'qr_url',
+    },
+
     rejectionReason: {
       type: DataTypes.TEXT,
       allowNull: true,

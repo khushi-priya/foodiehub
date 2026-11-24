@@ -5,7 +5,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 const send = (res, data) => res.status(200).json({ success: true, data });
 const wrap = (fn) => async (req, res, next) => { try { await fn(req, res); } catch (error) { next(error); } };
 const centsMoney = (value) => Number(Number(value || 0).toFixed(2));
-const validStatuses = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'];
+const validStatuses = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'picked_up', 'out_for_delivery', 'completed', 'cancelled'];
 
 function range(query = {}) {
   const now = new Date();

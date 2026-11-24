@@ -10,6 +10,7 @@ import {
   X,
   User,
   MapPin,
+  Search,
   FileText,
 } from 'lucide-react';
 import { api } from '../../../services/api';
@@ -90,6 +91,7 @@ export default function RestaurantReservations() {
   const [branches, setBranches] = useState([]);
   const [reservations, setReservations] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '');
   const [form, setForm] = useState(initialForm);
   const [reservationNow, setReservationNow] = useState(0);
   const [showForm, setShowForm] = useState(false);
@@ -109,7 +111,7 @@ export default function RestaurantReservations() {
     try {
       const [reservationResult, branchResult] = await Promise.all([
         api.get('/restaurant/floor/reservations', {
-          params: { status: filter },
+          params: { status: filter, ...(search.trim() ? { search: search.trim() } : {}) },
         }),
         api.get('/restaurant/floor/branches'),
       ]);
@@ -121,7 +123,7 @@ export default function RestaurantReservations() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, search]);
 
   useEffect(() => {
     load();
@@ -275,7 +277,8 @@ export default function RestaurantReservations() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <label className="relative min-w-[220px] flex-1 sm:flex-none"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input aria-label="Search reservations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search reservations..." className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-orange-400"/></label>
           <button
             type="button"
             onClick={load}

@@ -4,7 +4,7 @@ import { useAuth, getUserRoles } from "../../../context/AuthContext";
 import { api } from "../../../services/api";
 
 export default function CustomerRegister() {
-  const { user, login } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const returnTo = location.state?.from
@@ -41,20 +41,24 @@ export default function CustomerRegister() {
     }
     setBusy(true);
     try {
-      await api.post("/auth/customer/register", form);
-      const account = await login(
-        form.email.trim().toLowerCase(),
-        form.password,
-      );
-      if (!getUserRoles(account).includes("customer"))
-        throw new Error("Customer account role could not be verified.");
-      navigate(returnTo, { replace: true });
+      const response = await api.post("/auth/customer/register", form);
+      navigate("/customer/verify-email", { replace: true, state: { email: response.data?.data?.email || form.email.trim().toLowerCase(), returnTo } });
     } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Unable to create account.",
-      );
+      const response = err.response;
+      const code = response?.data?.code;
+      if ((response?.status === 429 || response?.status === 503) && response.data?.data?.requiresEmailVerification) {
+        const deliveryError = response.status === 429
+          ? 'Please wait before requesting another verification code.'
+          : 'We couldn\'t send your verification email right now. Please try again later.';
+        navigate('/customer/verify-email', { replace: true, state: { email: response.data?.data?.email || form.email.trim().toLowerCase(), returnTo, deliveryError, retryAfterSeconds: response.data.retryAfterSeconds } });
+        return;
+      }
+      if (code === 'EMAIL_ALREADY_REGISTERED') setError('This email is already registered. Please sign in.');
+      else if (code === 'PHONE_ALREADY_REGISTERED') setError('This mobile number is already in use.');
+      else if (code === 'EMAIL_VERIFICATION_PENDING') navigate('/customer/verify-email', { replace: true, state: { email: response.data?.data?.email || form.email.trim().toLowerCase(), returnTo } });
+      else if (response?.status === 429) setError('Too many verification requests. Please wait and try again.');
+      else if (response?.status === 503) setError('We couldn\'t send your verification email right now. Please try again later.');
+      else setError(response?.status === 409 ? 'An account already exists with these details. Please sign in or check the mobile number.' : 'Unable to create your account. Please check your details and try again.');
     } finally {
       setBusy(false);
     }
@@ -87,7 +91,7 @@ export default function CustomerRegister() {
             <label key={name} className="block text-sm font-medium">
               {label}
               <input
-                required={name !== "phone"}
+                required
                 type={type}
                 name={name}
                 autoComplete={name === "password" ? "new-password" : name}

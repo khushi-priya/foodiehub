@@ -92,8 +92,8 @@ export default function AdminLayout() {
   }), []);
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/admin/login', { replace: true });
+    try { await logout(); }
+    finally { navigate('/login', { replace: true }); }
   };
 
   const SidebarContent = () => (

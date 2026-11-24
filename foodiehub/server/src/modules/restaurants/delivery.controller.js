@@ -171,6 +171,7 @@ exports.getDashboard = async (req, res, next) => {
           where: { restaurantId: req.restaurant.id, orderType: "delivery" },
           attributes: [
             "id",
+            "branchId",
             "orderNumber",
             "customerName",
             "customerPhone",
@@ -368,6 +369,9 @@ exports.getDashboard = async (req, res, next) => {
         orderItems: assignment.order.items,
         orderStatus: assignment.order.status,
         kitchenStatus: assignment.order.kitchenStatus,
+        branchId: assignment.branchId,
+        pickupReady: assignment.order.status === "ready" && ["ready", "handed_over"].includes(assignment.order.kitchenStatus),
+        handoverConfirmed: assignment.order.kitchenStatus === "handed_over",
         paymentMethod: assignment.order.paymentMethod,
         paymentStatus: assignment.order.paymentStatus,
         codExpectedAmount: assignment.order.paymentMethod === "cash_on_delivery" ? Number(assignment.order.total) : null,
@@ -395,7 +399,7 @@ exports.getDashboard = async (req, res, next) => {
       accepted: activeAssignments.filter(
         (assignment) => assignment.status === "accepted",
       ).length,
-      awaitingPickup: activeAssignments.filter((assignment) => ["accepted", "arriving_at_restaurant", "at_restaurant"].includes(assignment.status) && assignment.order.status === "ready" && assignment.order.kitchenStatus === "ready").length,
+      awaitingPickup: currentAssignments.filter((assignment) => assignment.status === "at_restaurant" && assignment.order.branchId === assignment.branchId && assignment.order.status === "ready" && ["ready", "handed_over"].includes(assignment.order.kitchenStatus)).length,
       active: activeAssignments.filter((assignment) =>
         ["accepted", "arriving_at_restaurant", "at_restaurant", "picked_up", "on_the_way", "at_customer"].includes(
           assignment.status,

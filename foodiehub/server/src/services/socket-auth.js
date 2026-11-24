@@ -25,6 +25,7 @@ function restaurantRoomsForMembership(membership, branchIds) {
     (membership.role.permissions || []).map((permission) => permission.code),
   );
   const rooms = [`restaurant-membership:${membership.restaurantId}`];
+  if (["restaurant_owner", "orders.view", "orders.manage", "orders.manage_status", "orders.kitchen", "kitchen.update_status", "reservations.view", "reservations.manage", "reservations.update", "delivery_orders.view", "delivery_orders.view_assigned", "delivery_assignments.view", "payments.view", "payments.transactions.view", "employees.view", "employees.manage", "branches.view", "branches.manage", "menu.view", "tables.view"].some((code) => code === membership.role.code || permissions.has(code))) rooms.push(`restaurant-notifications:${membership.restaurantId}:${membership.id}`);
   if (permissions.has("support.view"))
     rooms.push(`restaurant-support:${membership.restaurantId}`);
   for (const branchId of branchIds) {

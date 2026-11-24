@@ -58,6 +58,7 @@ const Order = sequelize.define(
         'rejected',
         'preparing',
         'ready',
+        'picked_up',
         'out_for_delivery',
         'completed',
         'cancelled'

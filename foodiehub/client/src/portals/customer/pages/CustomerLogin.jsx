@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAuth, getUserRoles, homePath } from "../../../context/AuthContext";
+import { useAuth, getUserRoles } from "../../../context/AuthContext";
 
 export default function CustomerLogin() {
   const { user, login } = useAuth();
@@ -12,22 +12,16 @@ export default function CustomerLogin() {
   const [busy, setBusy] = useState(false);
   const returnTo = location.state?.from
     ? `${location.state.from.pathname || '/customer/dashboard'}${location.state.from.search || ''}${location.state.from.hash || ''}`
-    : '/customer/dashboard';
+    : location.state?.returnTo || '/customer/dashboard';
   useEffect(() => {
-    if (user)
-      navigate(
-        getUserRoles(user).includes("customer")
-          ? returnTo
-          : homePath(user),
-        { replace: true },
-      );
+    if (user && getUserRoles(user).includes("customer")) navigate(returnTo, { replace: true });
   }, [user, navigate, returnTo]);
   async function submit(event) {
     event.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const account = await login(email.trim(), password);
+      const account = await login(email.trim(), password, { portal: "customer" });
       if (!getUserRoles(account).includes("customer")) {
         setError(
           "This login is for customer accounts. Use the correct portal for your account.",
@@ -47,7 +41,7 @@ export default function CustomerLogin() {
         onSubmit={submit}
         className="w-full max-w-md space-y-5 rounded-3xl border border-orange-100 bg-white p-8 shadow-xl"
       >
-        <Link to={user ? homePath(user) : "/"} className="text-xl font-extrabold">
+        <Link to="/" className="text-xl font-extrabold">
           Foodie<span className="text-orange-500">Hub</span>
         </Link>
         <div>

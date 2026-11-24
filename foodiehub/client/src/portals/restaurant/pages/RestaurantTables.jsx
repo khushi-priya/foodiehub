@@ -148,7 +148,7 @@ export default function RestaurantTables() {
   });
   const [waitersByBranch, setWaitersByBranch] = useState({});
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || "");
   const [branchId, setBranchId] = useState("");
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -362,7 +362,7 @@ export default function RestaurantTables() {
       error: "",
     });
     try {
-      const result = await api.get(`/restaurant/tables/${table.id}/qr`);
+      const result = await api.get(`/public/restaurants/${encodeURIComponent(restaurantSlug)}/qr`);
       setQrDialog({ table, ...result.data.data, loading: false, error: "" });
     } catch (err) {
       setQrDialog({
@@ -372,36 +372,6 @@ export default function RestaurantTables() {
         qrUrl: "",
         error: message(err),
       });
-    }
-  }
-  async function generateQr(regenerate = false) {
-    if (!qrDialog?.table) return;
-    if (
-      regenerate &&
-      !window.confirm(
-        `Regenerate the QR code for ${qrDialog.table.tableNumber}? The old QR link will stop working.`,
-      )
-    )
-      return;
-    const table = qrDialog.table;
-    setQrDialog((current) => ({ ...current, loading: true, error: "" }));
-    try {
-      const result = await api.post(`/restaurant/tables/${table.id}/qr`, {
-        regenerate,
-      });
-      setQrDialog({ table, ...result.data.data, loading: false, error: "" });
-      announce(
-        regenerate
-          ? "QR code regenerated. The previous QR link is now invalid."
-          : "QR code generated.",
-      );
-      await load();
-    } catch (err) {
-      setQrDialog((current) => ({
-        ...current,
-        loading: false,
-        error: message(err),
-      }));
     }
   }
   async function copyQr(url) {
@@ -453,7 +423,7 @@ export default function RestaurantTables() {
         result.data.data || {};
       if (!codes.length) {
         announce(
-          "No active table QR codes are ready to print. Generate QR codes from the table cards first.",
+          "There are no active tables in this filter to include on the print sheet.",
         );
         return;
       }
@@ -508,10 +478,9 @@ export default function RestaurantTables() {
       <div className="flex gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
         <QrCode size={20} className="mt-0.5 shrink-0 text-sky-700" />
         <p>
-          <b>Table QR menus are ready.</b> Scanning a QR opens this branch’s
-          current menu. Each table QR opens its own validated dine-in menu. QR
-          ordering is enabled, and table codes are separate from the restaurant
-          menu QR.
+          <b>One restaurant QR is shared by every table.</b> Customers scan it,
+          browse the menu, then choose their branch and an available table.
+          Display this same QR code on all restaurant tables.
         </p>
       </div>
       <section
@@ -528,8 +497,8 @@ export default function RestaurantTables() {
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               One QR for {restaurantName}. It opens the public restaurant page
-              so customers can choose a branch and service. It never assigns a
-              table.
+              so customers can choose a branch and table. Display this same QR
+              code on all restaurant tables.
             </p>
             {restaurantQrError && (
               <p role="alert" className="mt-2 text-xs text-rose-700">
@@ -637,8 +606,7 @@ export default function RestaurantTables() {
             <div>
               <h2 className="font-bold text-slate-900">Table QR management</h2>
               <p className="mt-1 text-xs text-slate-500">
-                {pagination.total} tables in the current filter · each table has
-                an independent QR token
+                {pagination.total} tables in the current filter · all use the same restaurant QR
               </p>
             </div>
             <button
@@ -906,7 +874,7 @@ export default function RestaurantTables() {
       )}
       {qrDialog && (
         <Modal
-          title={`Table QR · ${qrDialog.table.tableNumber}`}
+          title={`Shared restaurant QR · Table ${qrDialog.table.tableNumber}`}
           onClose={() => !qrDialog.loading && setQrDialog(null)}
         >
           <div className="space-y-4">
@@ -948,13 +916,7 @@ export default function RestaurantTables() {
                     <Copy size={15} />
                     Copy link
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => generateQr(true)}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Regenerate QR
-                  </button>
+                  <p className="w-full text-xs text-slate-500">This is the same restaurant QR displayed for every table.</p>
                 </div>
               </>
             ) : (
@@ -969,17 +931,10 @@ export default function RestaurantTables() {
                   </p>
                 ) : (
                   <p className="mt-3 text-sm text-slate-500">
-                    This table does not have a QR code yet.
+                    The shared restaurant QR could not be loaded.
                   </p>
                 )}
-                <button
-                  type="button"
-                  disabled={!qrDialog.table.isActive}
-                  onClick={() => generateQr(false)}
-                  className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white disabled:opacity-50"
-                >
-                  Generate QR code
-                </button>
+                <button type="button" onClick={() => openQr(qrDialog.table)} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white">Retry shared restaurant QR</button>
               </div>
             )}
           </div>
@@ -1363,7 +1318,7 @@ function TableCard({
           className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-orange-200 px-3 text-xs font-semibold text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <QrCode size={14} />
-          {table.qrAvailable ? "View QR" : "Generate QR"}
+          View shared QR
         </button>
         <button
           type="button"

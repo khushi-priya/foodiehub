@@ -888,7 +888,7 @@ export default function RestaurantBranches() {
     total: 0,
   });
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || "");
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

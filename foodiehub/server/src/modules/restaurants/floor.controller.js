@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const { Branch, RestaurantTable, RestaurantMember, Role, EmployeeBranchAssignment, Reservation, Order, User, TableOperationEvent } = require('../../models');
 const { emitFloorEvent, emitCustomerReservationEvent, updateOccupancy, ACTIVE_ORDER_STATUSES } = require('../../services/table-operations');
 const { createCustomerNotification } = require('../../services/customer-notifications');
+const { createRestaurantNotification } = require('../../services/restaurant-notifications');
 const { reservationTransitionAllowed, branchInScope } = require('../../services/floor-policy');
 const { reservationFitsBranchHours, localDateTimeToInstant } = require('../../services/branch-availability');
 
@@ -189,6 +190,10 @@ exports.listReservations = handle(async (req, res) => {
   const where = { restaurantId: req.restaurant.id };
   if (req.query.branchId) { assertBranchScope(req, req.query.branchId); where.branchId = req.query.branchId; }
   else if (req.restaurantBranchIds) where.branchId = { [Op.in]: req.restaurantBranchIds };
+  if (typeof req.query.search === 'string' && req.query.search.trim()) {
+    const term = `%${req.query.search.trim().slice(0, 80).replace(/[\\%_]/g, '\\$&')}%`;
+    where[Op.and] = [{ [Op.or]: [{ guestName: { [Op.like]: term } }, { guestPhone: { [Op.like]: term } }] }];
+  }
   if (req.query.status === 'upcoming' || req.query.view === 'upcoming') {
     where.status = { [Op.in]: ['pending', 'confirmed', 'checked_in'] };
     where.startsAt = { [Op.gte]: new Date() };
@@ -224,6 +229,7 @@ exports.createReservation = handle(async (req, res) => {
     }
     if (!table) throw fail(409, 'No suitable table is available for that time and party size.');
     const reservation = await Reservation.create({ restaurantId: req.restaurant.id, branchId, tableId: table.id, createdByMemberId: req.restaurantMembership.id, guestName: guestName.trim(), guestPhone: guestPhone.trim(), guestEmail: typeof guestEmail === 'string' ? guestEmail.trim().slice(0, 150) || null : null, partySize: Number(partySize), startsAt: start, endsAt: end, status: 'pending', notes: typeof notes === 'string' ? notes.trim().slice(0, 2000) || null : null }, { transaction });
+    await createRestaurantNotification({ app: req.app, restaurantId: req.restaurant.id, branchId, category: 'reservations', title: 'New reservation request', message: `${reservation.guestName} requested a table for ${reservation.partySize}.`, href: `/restaurant/reservations?search=${encodeURIComponent(reservation.guestName)}`, entityId: reservation.id, dedupeKey: `reservation-created:${reservation.id}`, transaction });
     await transaction.commit();
     emitFloorEvent(req, branchId, 'floor:reservation-updated', { reservationId: reservation.id, status: reservation.status, tableId: table.id });
     send(res, reservation, 201);
@@ -267,6 +273,7 @@ exports.updateReservation = handle(async (req, res) => {
       const labels = { confirmed: 'Reservation confirmed', rejected: 'Reservation declined', cancelled: 'Reservation cancelled', completed: 'Reservation completed', no_show: 'Reservation marked no-show' };
       await createCustomerNotification({ app: req.app, customerId: reservation.customerId, category: 'reservations', title: labels[status], message: `Your reservation ${reservation.id.slice(0, 8).toUpperCase()} is ${status.replaceAll('_', ' ')}.${status === 'rejected' && rejectionReason ? ` ${rejectionReason.trim()}` : ''}`, href: '/customer/reservations', entityId: reservation.id, dedupeKey: `reservation-status:${reservation.id}:${status}`, transaction });
     }
+    await createRestaurantNotification({ app: req.app, restaurantId: reservation.restaurantId, branchId: reservation.branchId, category: 'reservations', title: 'Reservation updated', message: `Reservation ${reservation.guestName} is ${status.replaceAll('_', ' ')}.`, href: `/restaurant/reservations?search=${encodeURIComponent(reservation.guestName)}`, entityId: reservation.id, dedupeKey: `reservation-status:${reservation.id}:${status}`, transaction });
     if (table && status === 'seated') await table.update({ occupancyStatus: 'occupied' }, { transaction });
     else if (table && status === 'confirmed') await updateOccupancy(table, transaction, 'reserved');
     else if (table && status === 'checked_in') await updateOccupancy(table, transaction, 'reserved');

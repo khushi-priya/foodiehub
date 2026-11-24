@@ -26,7 +26,7 @@ export default function ProtectedRoute({
   if (!user) {
     return (
       <Navigate
-        to={allowedRoles.includes('customer') ? '/customer/login' : '/login'}
+        to="/login"
         replace
         state={{ from: location }}
       />

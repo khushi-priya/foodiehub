@@ -103,7 +103,7 @@ export default function AdminLogin() {
       let authenticatedUser = user;
 
       if (!authenticatedUser || !hasAdminAccess(authenticatedUser)) {
-        authenticatedUser = await login(email.trim(), password);
+        authenticatedUser = await login(email.trim(), password, { portal: 'admin' });
       }
 
       if (!hasAdminAccess(authenticatedUser)) {

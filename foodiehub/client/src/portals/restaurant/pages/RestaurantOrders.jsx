@@ -168,7 +168,7 @@ export default function RestaurantOrders() {
 
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || "");
   const [branchId, setBranchId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

@@ -12,6 +12,8 @@ router.post(
   authController.registerRestaurant
 );
 router.post('/customer/register', authController.registerCustomer);
+router.post('/customer/verify-email', authController.verifyCustomerEmail);
+router.post('/customer/resend-email-otp', authController.resendCustomerEmailOtp);
 
 // Authentication.
 router.post('/login', authController.login);

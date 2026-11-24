@@ -18,8 +18,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Bell,
-  Search,
   ChevronDown,
   ShieldCheck,
   Store,
@@ -42,6 +40,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../../../context/AuthContext";
+import RestaurantHeaderTools from "../components/RestaurantHeaderTools";
 
 const navigation = [
   {
@@ -320,7 +319,7 @@ export default function RestaurantLayout() {
     try {
       await logout();
     } finally {
-      navigate("/restaurant/login", { replace: true });
+      navigate("/login", { replace: true });
     }
   };
 
@@ -578,20 +577,7 @@ export default function RestaurantLayout() {
           </div>
 
           <div className="flex items-center gap-3 sm:gap-5">
-            <div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 xl:flex">
-              <Search size={16} className="text-slate-400" />
-              <span className="text-xs text-slate-400">Search coming soon</span>
-            </div>
-
-            <button
-              type="button"
-              className="relative rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100"
-              aria-label="Notifications"
-              title="Notifications"
-            >
-              <Bell size={20} />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-white bg-orange-500" />
-            </button>
+            <RestaurantHeaderTools />
 
             <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 

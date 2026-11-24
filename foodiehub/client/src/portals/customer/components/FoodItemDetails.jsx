@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 const money = (value) => `₹${Number(value || 0).toFixed(2)}`;
 
-export default function FoodItemDetails({ itemId, branchId, tableQrToken = null, onClose }) {
+export default function FoodItemDetails({ itemId, branchId, tableId = null, tableQrToken = null, onClose }) {
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,7 +39,7 @@ export default function FoodItemDetails({ itemId, branchId, tableQrToken = null,
     setCartNotice("");
     setAdding(true);
     const payload = {
-      ...(tableQrToken ? { tableQrToken } : { restaurantId: item.restaurant.id, branchId }),
+      ...(tableQrToken ? { tableQrToken, tableId, branchId } : { restaurantId: item.restaurant.id, branchId }),
       menuItemId: item.id,
       variantOptionId: variant || null,
       addonOptionIds: addons,
@@ -106,7 +106,7 @@ export default function FoodItemDetails({ itemId, branchId, tableQrToken = null,
   const selectedUnitPrice = Number(selectedVariant?.price ?? item?.discountedPrice ?? item?.price ?? 0)
     + addons.reduce((sum, id) => sum + Number(extras.find((option) => option.id === id)?.price || 0), 0);
   const selectionValid = variants.length === 0 || Boolean(selectedVariant);
-  const orderContextValid = Boolean(tableQrToken || (item?.restaurant?.id && branchId));
+  const orderContextValid = Boolean((tableQrToken && tableId && branchId) || (item?.restaurant?.id && branchId));
   const canAddToCart = !adding && orderContextValid && selectionValid && quantity >= 1 && quantity <= 99;
   const displayTotal = selectedUnitPrice * quantity;
   const toggleAddon = (id) =>

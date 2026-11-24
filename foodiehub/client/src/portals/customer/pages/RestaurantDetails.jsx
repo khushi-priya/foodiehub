@@ -872,6 +872,12 @@ export default function RestaurantDetails() {
           key={selectedItem}
           itemId={selectedItem}
           branchId={selectedBranch}
+          tableId={
+            serviceType === "dine_in" &&
+              confirmedDineInTableId === selectedDineInTable?.table?.id
+              ? selectedDineInTable?.table?.id
+              : null
+          }
           tableQrToken={
             serviceType === "dine_in" &&
               confirmedDineInTableId === selectedDineInTable?.table?.id

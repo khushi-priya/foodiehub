@@ -171,6 +171,7 @@ app.use('/api/v1/admin', require('./modules/admin/admin.routes'));
 app.use('/api/v1/restaurant/subscription', require('./modules/subscriptions/restaurant.routes'));
 app.use('/api/v1/restaurant/coupons', require('./modules/restaurants/coupon.routes'));
 app.use('/api/v1/restaurant/team', require('./modules/restaurants/team.routes'));
+app.use('/api/v1/restaurant/tools', require('./modules/restaurants/tools.routes'));
 app.use('/api/v1/restaurant/delivery', require('./modules/restaurants/delivery.routes'));
 app.use('/api/v1/restaurant/delivery', require('./modules/restaurants/delivery-orders.routes'));
 app.post('/api/v1/webhooks/razorpay', require('./modules/restaurants/payments.controller').razorpayWebhook);

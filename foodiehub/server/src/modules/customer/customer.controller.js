@@ -21,7 +21,7 @@ exports.summary = wrap(async (req, res) => {
   const customerId = req.customer.id;
   const [totalOrders, activeOrders, completedOrders, wishlistItems] = await Promise.all([
     Order.count({ where: { customerId } }),
-    Order.count({ where: { customerId, status: { [Op.in]: ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'] } } }),
+    Order.count({ where: { customerId, status: { [Op.in]: ['pending', 'accepted', 'preparing', 'ready', 'picked_up', 'out_for_delivery'] } } }),
     Order.count({ where: { customerId, status: 'completed' } }),
     CustomerWishlistItem.count({ where: { customerId } }),
   ]);
@@ -53,7 +53,7 @@ exports.orders = wrap(async (req, res) => {
   const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 10, 1), 50);
   const where = { customerId: req.customer.id };
   if (req.query.status) {
-    const statuses = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'];
+    const statuses = ['pending', 'accepted', 'rejected', 'preparing', 'ready', 'picked_up', 'out_for_delivery', 'completed', 'cancelled'];
     if (!statuses.includes(req.query.status)) throw fail(400, 'Invalid order status.');
     where.status = req.query.status;
   }

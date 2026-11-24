@@ -1,7 +1,6 @@
-const crypto = require('node:crypto');
 const { Op } = require('sequelize');
 const { RestaurantTable, Branch, Restaurant, RestaurantMember, User, Order, Reservation } = require('../../models');
-const { buildTableQrPayload } = require('../../utils/table-qr');
+const { ensureRestaurantQr, buildRestaurantQrPayload } = require('../../utils/restaurant-qr');
 const { emitFloorEvent } = require('../../services/table-operations');
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -51,7 +50,8 @@ async function findTable(req) {
     id: table.assignedWaiter.id,
     name: [table.assignedWaiter.user.firstName, table.assignedWaiter.user.lastName].filter(Boolean).join(' ') || table.assignedWaiter.user.email,
   } : null;
-  result.qrAvailable = Boolean(table.qrToken && table.isActive);
+  const sharedQr = await ensureRestaurantQr(req.restaurant.id);
+  result.qrAvailable = Boolean(sharedQr.qrToken && table.isActive);
   delete result.qrToken;
   return result;
 }
@@ -71,24 +71,15 @@ async function getQrTable(req) {
   return table;
 }
 
-function createQrToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
-
 exports.qr = handle(async (req, res) => {
   const table = await getQrTable(req);
-  if (!table.qrToken) throw fail(404, 'No QR code has been generated for this table yet.');
-  response(res, await buildTableQrPayload(table));
+  response(res, await buildRestaurantQrPayload(req.restaurant.id));
 });
 
 exports.generateQr = handle(async (req, res) => {
   if (req.body?.regenerate !== undefined && typeof req.body.regenerate !== 'boolean') throw fail(400, 'regenerate must be true or false.');
-  const table = await getQrTable(req);
-  if (!table.qrToken || req.body?.regenerate === true) {
-    table.qrToken = createQrToken();
-    await table.save();
-  }
-  response(res, await buildTableQrPayload(table));
+  await getQrTable(req);
+  response(res, await buildRestaurantQrPayload(req.restaurant.id));
 });
 
 exports.qrSheet = handle(async (req, res) => {
@@ -102,32 +93,14 @@ exports.qrSheet = handle(async (req, res) => {
     attributes: ['id'],
   });
   for (const candidate of candidates) await getQrTable({ ...req, params: { ...req.params, tableId: candidate.id } });
-  const { tables, newlyGeneratedCount } = await RestaurantTable.sequelize.transaction(async (transaction) => {
-    const rows = await RestaurantTable.findAll({
-      where,
-      attributes: ['id', 'restaurantId', 'branchId', 'tableNumber', 'qrToken'],
-      include: [{ model: Branch, as: 'branch', attributes: ['name'], required: true }],
-      order: [['branchId', 'ASC'], ['tableNumber', 'ASC']],
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
-    let created = 0;
-    for (const table of rows) {
-      if (table.qrToken) continue;
-      table.qrToken = createQrToken();
-      await table.save({ transaction, fields: ['qrToken'] });
-      created += 1;
-    }
-    return { tables: rows, newlyGeneratedCount: created };
-  });
-  const codes = await Promise.all(tables.map(async (table) => {
-    await getQrTable({ ...req, params: { ...req.params, tableId: table.id } });
-    return { tableNumber: table.tableNumber, branchName: table.branch.name, ...(await buildTableQrPayload(table)) };
-  }));
-  response(res, { tables: codes, newlyGeneratedCount });
+  const tables = await RestaurantTable.findAll({ where, attributes: ['id', 'restaurantId', 'branchId', 'tableNumber'], include: [{ model: Branch, as: 'branch', attributes: ['name'], required: true }], order: [['branchId', 'ASC'], ['tableNumber', 'ASC']] });
+  for (const table of tables) await getQrTable({ ...req, params: { ...req.params, tableId: table.id } });
+  const sharedQr = await buildRestaurantQrPayload(req.restaurant.id);
+  response(res, { tables: tables.map((table) => ({ tableNumber: table.tableNumber, branchName: table.branch.name, ...sharedQr })), newlyGeneratedCount: 0 });
 });
 
 exports.list = handle(async (req, res) => {
+  const { qrToken } = await ensureRestaurantQr(req.restaurant.id);
   const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
   const where = { restaurantId: req.restaurant.id };
@@ -152,7 +125,7 @@ exports.list = handle(async (req, res) => {
     ],
     order: [['branchId', 'ASC'], ['tableNumber', 'ASC']], limit, offset: (page - 1) * limit,
   });
-  const tables = result.rows.map((table) => { const value = table.toJSON(); value.qrAvailable = Boolean(table.qrToken && table.isActive); value.assignedWaiter = table.assignedWaiter?.user ? { id: table.assignedWaiter.id, name: [table.assignedWaiter.user.firstName, table.assignedWaiter.user.lastName].filter(Boolean).join(' ') || table.assignedWaiter.user.email } : null; delete value.qrToken; return value; });
+  const tables = result.rows.map((table) => { const value = table.toJSON(); value.qrAvailable = Boolean(qrToken && table.isActive); value.assignedWaiter = table.assignedWaiter?.user ? { id: table.assignedWaiter.id, name: [table.assignedWaiter.user.firstName, table.assignedWaiter.user.lastName].filter(Boolean).join(' ') || table.assignedWaiter.user.email } : null; delete value.qrToken; return value; });
   response(res, { tables, pagination: { total: result.count, page, limit, totalPages: Math.ceil(result.count / limit) } });
 });
 
@@ -198,7 +171,7 @@ exports.status = handle(async (req, res) => {
     ]);
     if (openOrders || activeReservations) throw fail(409, 'A table with an active dine-in order or reservation cannot be deactivated.');
   }
-  await table.update({ isActive: req.body.isActive, occupancyStatus: req.body.isActive ? 'available' : 'inactive', ...(req.body.isActive ? {} : { qrToken: null, assignedWaiterMemberId: null }) });
+  await table.update({ isActive: req.body.isActive, occupancyStatus: req.body.isActive ? 'available' : 'inactive', ...(req.body.isActive ? {} : { assignedWaiterMemberId: null }) });
   emitFloorEvent(req, table.branchId, 'floor:occupancy-updated', { tableId: table.id, status: table.occupancyStatus });
   response(res, await findTable({ restaurant: req.restaurant, params: { tableId: table.id } }));
 });

@@ -61,6 +61,13 @@ const User = sequelize.define(
       field: 'email_verified_at',
     },
 
+    emailVerificationOtpHash: { type: DataTypes.STRING(64), allowNull: true, field: 'email_verification_otp_hash' },
+    emailVerificationOtpExpiresAt: { type: DataTypes.DATE, allowNull: true, field: 'email_verification_otp_expires_at' },
+    emailVerificationOtpAttempts: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, field: 'email_verification_otp_attempts' },
+    emailVerificationOtpSentAt: { type: DataTypes.DATE, allowNull: true, field: 'email_verification_otp_sent_at' },
+    emailVerificationOtpRequestCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, field: 'email_verification_otp_request_count' },
+    emailVerificationOtpRequestWindowAt: { type: DataTypes.DATE, allowNull: true, field: 'email_verification_otp_request_window_at' },
+
     lastLoginAt: {
       type: DataTypes.DATE,
       allowNull: true,
@@ -69,6 +76,7 @@ const User = sequelize.define(
   },
   {
     tableName: 'users',
+    defaultScope: { attributes: { exclude: ['emailVerificationOtpHash', 'emailVerificationOtpExpiresAt', 'emailVerificationOtpAttempts', 'emailVerificationOtpSentAt', 'emailVerificationOtpRequestCount', 'emailVerificationOtpRequestWindowAt'] } },
     indexes: [
       { fields: ['status'] },
     ],

@@ -15,6 +15,7 @@ const {
   CodCollection,
 } = require("../../models");
 const { createCustomerNotification } = require("../../services/customer-notifications");
+const { createRestaurantNotification } = require("../../services/restaurant-notifications");
 const { syncCommissionForOrder } = require("../../services/commission-ledger");
 const { deliveryTransition, assertSingleActiveDelivery } = require("../../services/order-workflow");
 
@@ -1297,6 +1298,7 @@ exports.assignStaff = async (req, res, next) => {
     );
     await transaction.commit();
     if (order.customerId) await createCustomerNotification({ app: req.app, customerId: order.customerId, category: "delivery", title: "Delivery update", message: `Delivery for order ${order.orderNumber} is pending courier acceptance.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `delivery:${assignment.id}:pending_acceptance` });
+    await createRestaurantNotification({ app: req.app, restaurantId: order.restaurantId, branchId: order.branchId, category: 'delivery', title: 'Delivery associate assigned', message: `A delivery associate was assigned to order ${order.orderNumber}.`, href: `/restaurant/delivery/orders?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `delivery:${assignment.id}:pending_acceptance` });
     const io = req.app.get("io");
     if (io) {
       io.to(`delivery:${req.restaurant.id}:${order.branchId}`).emit(
@@ -1434,6 +1436,8 @@ exports.updateAssignment = async (req, res, next) => {
         if (!collection || !(["collected", "reconciled"].includes(collection.status) || (collection.status === "collection_failed" && collection.resolutionStatus === "resolved"))) throw fail(409, "Confirm COD collection, or ask authorized restaurant staff to resolve the failed collection, before completing delivery.");
       }
     }
+    if (action === "on_the_way" && orderForTracking.status !== "picked_up")
+      throw fail(409, "Confirm physical pickup before starting delivery.");
     const fromStatus = assignment.status;
     const now = new Date();
     const reason =
@@ -1452,7 +1456,7 @@ exports.updateAssignment = async (req, res, next) => {
       await lockedOrder.update({ deliveryOtpHash: deliveryOtpHash(lockedOrder.id, assignment.id, otpForCustomer), deliveryOtpExpiresAt: new Date(now.getTime() + 30 * 60_000), status: "out_for_delivery" }, { transaction });
     }
     if (action === "picked_up") {
-      await lockedOrder.update({ status: "out_for_delivery" }, { transaction });
+      await lockedOrder.update({ status: "picked_up" }, { transaction });
     }
     if (action === "delivered") await lockedOrder.update({ status: "completed", completedAt: now, deliveryOtpHash: null, deliveryOtpExpiresAt: null }, { transaction });
     await assignment.update(
@@ -1513,6 +1517,8 @@ exports.updateAssignment = async (req, res, next) => {
       const message = otpForCustomer ? `Delivery for order ${orderForTracking.orderNumber} is on the way. Share OTP ${otpForCustomer} with your delivery partner only after receiving your order.` : `Delivery for order ${orderForTracking.orderNumber} is ${transition.to.replaceAll("_", " ")}.`;
       await createCustomerNotification({ app: req.app, customerId: orderForTracking.customerId, category: "delivery", title: deliveryLabels[transition.to] || "Delivery update", message, href: `/customer/orders/${assignment.orderId}`, entityId: assignment.orderId, dedupeKey: `delivery:${assignment.id}:${transition.to}`, transaction });
     }
+    const restaurantDeliveryLabels = { accepted: 'Delivery associate accepted assignment', arriving_at_restaurant: 'Delivery associate is arriving', at_restaurant: 'Delivery associate arrived', picked_up: 'Order picked up', on_the_way: 'Delivery started', at_customer: 'Delivery associate arrived at customer', delivered: 'Delivery completed', failed: 'Delivery failed', rejected: 'Delivery assignment declined' };
+    await createRestaurantNotification({ app: req.app, restaurantId: assignment.restaurantId, branchId: assignment.branchId, category: 'delivery', title: restaurantDeliveryLabels[transition.to] || 'Delivery updated', message: `Order ${orderForTracking.orderNumber}: ${restaurantDeliveryLabels[transition.to] || transition.to.replaceAll('_', ' ')}.`, href: `/restaurant/delivery/orders?search=${encodeURIComponent(orderForTracking.orderNumber)}`, entityId: assignment.orderId, dedupeKey: `delivery:${assignment.id}:${transition.to}`, transaction });
     await transaction.commit();
     const io = req.app.get("io");
     if (io) {
@@ -2266,6 +2272,7 @@ exports.processAutomaticAssignments = async (io) => {
       await transaction.commit();
       noStaffNoticeSent.delete(order.id);
       if (order.customerId) await createCustomerNotification({ io, customerId: order.customerId, category: "delivery", title: "Delivery partner assigned", message: `A delivery partner has been assigned to order ${order.orderNumber}.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `delivery:${assignment.id}:pending_acceptance` });
+      await createRestaurantNotification({ io, restaurantId: order.restaurantId, branchId: order.branchId, category: 'delivery', title: 'Delivery associate assigned', message: `A delivery associate was assigned to order ${order.orderNumber}.`, href: `/restaurant/delivery/orders?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `delivery:${assignment.id}:pending_acceptance` });
       if (io) {
         io.to(`delivery:${order.restaurantId}:${order.branchId}`).emit(
           "delivery:assignment-updated",

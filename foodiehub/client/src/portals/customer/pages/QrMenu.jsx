@@ -16,6 +16,8 @@ export default function QrMenu() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [dietaryFilter, setDietaryFilter] = useState('');
   const [excludedAllergens, setExcludedAllergens] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
+  const [selectedTableId, setSelectedTableId] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -23,10 +25,12 @@ export default function QrMenu() {
     try {
       const response = await api.get(`/public/qr/${encodeURIComponent(token)}`);
       setData(response.data.data);
+      setSelectedBranchId('');
+      setSelectedTableId('');
       setActiveCategory(response.data.data.categories?.[0]?.name || '');
     } catch (requestError) {
       setData(null);
-      setError(requestError.response?.data?.message || 'This table QR code is invalid or unavailable.');
+      setError(requestError.response?.data?.message || 'This restaurant QR code is invalid or unavailable.');
     } finally {
       setLoading(false);
     }
@@ -35,6 +39,10 @@ export default function QrMenu() {
   useEffect(() => { load(); }, [load]);
 
   const categories = data?.categories || [];
+  const branches = data?.branches || [];
+  const tables = (data?.tables || []).filter((table) => table.branchId === selectedBranchId);
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
+  const selectedTable = tables.find((table) => table.id === selectedTableId);
   const visibleCategories = useMemo(() => categories.map((category) => ({
     ...category,
     items: (category.items || []).filter((item) => (!dietaryFilter || (item.dietaryTags || []).includes(dietaryFilter)) && excludedAllergens.every((allergen) => !(item.allergenTags || []).includes(allergen))),
@@ -73,16 +81,20 @@ export default function QrMenu() {
             <div className="min-w-0"><h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">{data.restaurant.name}</h1>{data.restaurant.description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">{data.restaurant.description}</p>}</div>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
-            <span className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 text-sm text-slate-100"><MapPin size={15} className="text-orange-300" />{data.branch.name}</span>
-            <span className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 text-sm font-semibold text-white"><Armchair size={15} className="text-orange-300" />Table {data.table.number}</span>
+            <span className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 text-sm text-slate-100"><MapPin size={15} className="text-orange-300" />Choose a branch and table below</span>
           </div>
-          {data.branch.address && <p className="mt-3 max-w-2xl text-xs text-slate-400">{data.branch.address}</p>}
+          {selectedBranch?.address && <p className="mt-3 max-w-2xl text-xs text-slate-400">{selectedBranch.address}</p>}
         </div>
       </header>
       <div className="mx-auto max-w-5xl px-4 sm:px-8">
         <div className="sticky top-0 z-20 -mx-4 border-b border-orange-100 bg-[#fffaf6]/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
-          <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-900">Dine-in menu · Table {data.table.number} <span className="ml-1 font-normal text-slate-500">· {itemCount} items</span></p><span className="hidden items-center gap-1.5 text-xs text-slate-500 sm:inline-flex"><ChefHat size={14} />Add items to your table order</span></div>
+          <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-900">Restaurant menu <span className="ml-1 font-normal text-slate-500">· {itemCount} items</span></p><span className="hidden items-center gap-1.5 text-xs text-slate-500 sm:inline-flex"><ChefHat size={14} />Select your table before ordering</span></div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="text-xs font-semibold text-slate-700">Restaurant branch <select value={selectedBranchId} onChange={(event) => { setSelectedBranchId(event.target.value); setSelectedTableId(''); }} className="ml-2 min-h-9 rounded-lg border border-slate-200 bg-white px-2"><option value="">Choose a branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+            {branches.length === 0 && <span role="status" className="text-xs text-amber-700">No dine-in branches are currently available. You can still browse the menu.</span>}
+            <label className="text-xs font-semibold text-slate-700">Your table <select value={selectedTableId} onChange={(event) => setSelectedTableId(event.target.value)} disabled={!selectedBranchId} className="ml-2 min-h-9 rounded-lg border border-slate-200 bg-white px-2 disabled:bg-slate-100"><option value="">Choose an available table</option>{tables.map((table) => <option key={table.id} value={table.id}>Table {table.number} · {table.seatingCapacity} seats</option>)}</select></label>
+            {selectedBranchId && <Link to={`/restaurants/${encodeURIComponent(data.restaurant.slug)}?branchId=${encodeURIComponent(selectedBranchId)}&book=1`} className="text-xs font-semibold text-orange-700 underline">Make a reservation</Link>}
+            {selectedBranchId && tables.length === 0 && <span role="status" className="text-xs text-amber-700">No active tables are available at this branch.</span>}
             <label className="text-xs font-semibold text-slate-700">Dietary preference <select value={dietaryFilter} onChange={(event) => setDietaryFilter(event.target.value)} className="ml-2 min-h-9 rounded-lg border border-slate-200 bg-white px-2"><option value="">All items</option><option value="vegan">Vegan</option><option value="vegetarian">Vegetarian</option><option value="gluten_free">Gluten free</option><option value="dairy_free">Dairy free</option><option value="halal">Halal</option><option value="kosher">Kosher</option></select></label>
             <details className="text-xs"><summary className="cursor-pointer font-semibold text-slate-700">Hide labeled allergens</summary><div className="mt-2 flex max-w-2xl flex-wrap gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white p-3">{[['peanuts','Peanuts'],['tree_nuts','Tree nuts'],['milk','Milk'],['eggs','Eggs'],['soy','Soy'],['wheat','Wheat'],['fish','Fish'],['shellfish','Shellfish'],['sesame','Sesame']].map(([value,label]) => <label key={value} className="flex items-center gap-1.5 text-slate-600"><input type="checkbox" checked={excludedAllergens.includes(value)} onChange={(event) => setExcludedAllergens((current) => event.target.checked ? [...current,value] : current.filter((entry) => entry !== value))}/>{label}</label>)}</div></details>
           </div>
@@ -106,7 +118,7 @@ export default function QrMenu() {
                       {(item.dietaryTags?.length > 0 || item.allergenTags?.length > 0) && <p className="mt-1 text-[10px] leading-4 text-slate-500">{[...(item.dietaryTags || []).map((tag) => tag.replaceAll('_', ' ')), ...(item.allergenTags || []).map((tag) => `contains ${tag.replaceAll('_', ' ')}`)].join(' · ')}</p>}
                       {item.options?.length > 0 && <details className="mt-2 text-xs text-slate-500"><summary className="w-fit cursor-pointer font-semibold text-orange-700">Variants &amp; add-ons ({item.options.length})</summary><ul className="mt-1 space-y-1">{item.options.map((option) => <li key={`${option.type}-${option.name}`} className="flex justify-between gap-3"><span>{option.name} <span className="text-slate-400">({option.type === 'variant' ? 'variant' : 'add-on'})</span></span><span className="shrink-0 font-medium text-slate-700">{money(option.price)}</span></li>)}</ul></details>}
                       <div className="mt-auto flex flex-wrap items-baseline gap-x-2 pt-2">{item.discountedPrice != null && Number(item.discountedPrice) < Number(item.price) ? <><span className="font-bold text-slate-900">{money(item.discountedPrice)}</span><span className="text-xs text-slate-400 line-through">{money(item.price)}</span></> : <span className="font-bold text-slate-900">{money(item.price)}</span>}</div>
-                      <button type="button" onClick={() => setSelectedItem(item.id)} className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-orange-500 px-3 text-xs font-bold text-white transition hover:bg-orange-600"><ShoppingCart size={14} />Customize &amp; add</button>
+                      <button type="button" disabled={!selectedBranchId || !selectedTableId} onClick={() => setSelectedItem(item.id)} className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-orange-500 px-3 text-xs font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300"><ShoppingCart size={14} />{selectedTableId ? 'Customize & add' : 'Choose table to order'}</button>
                     </div>
                   </article>
                 ))}</div>
@@ -114,10 +126,10 @@ export default function QrMenu() {
             ))}</div>
           )}
         </section>
-        <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center text-sm text-orange-900"><p className="font-semibold">Order for Table {data.table.number}</p><p className="mt-1 text-xs text-orange-800">Your selections will stay linked to this table at checkout.</p><Link to="/customer/cart" className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white hover:bg-orange-700"><ShoppingCart size={15} />View cart</Link></div>
+        <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-center text-sm text-orange-900"><p className="font-semibold">{selectedTable ? `Ordering for Table ${selectedTable.number} at ${selectedBranch?.name}` : 'Select your table to start a dine-in order'}</p><p className="mt-1 text-xs text-orange-800">Only active, currently available tables at this restaurant can be selected.</p><Link to="/customer/cart" className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white hover:bg-orange-700"><ShoppingCart size={15} />View cart</Link></div>
         <footer className="pt-6 text-center text-xs text-slate-400">Powered by FoodieHub</footer>
       </div>
-      {selectedItem && <FoodItemDetails key={selectedItem} itemId={selectedItem} tableQrToken={token} onClose={() => setSelectedItem(null)} />}
+      {selectedItem && selectedTable && <FoodItemDetails key={selectedItem} itemId={selectedItem} branchId={selectedBranchId} tableId={selectedTable.id} tableQrToken={data.tableQrToken || token} onClose={() => setSelectedItem(null)} />}
     </main>
   );
 }

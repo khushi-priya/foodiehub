@@ -23,6 +23,7 @@ import RestaurantCategories from '../portals/restaurant/pages/RestaurantCategori
 import CustomerLayout from '../portals/customer/layouts/CustomerLayout';
 import CustomerLogin from '../portals/customer/pages/CustomerLogin';
 import CustomerRegister from '../portals/customer/pages/CustomerRegister';
+import CustomerEmailVerification from '../portals/customer/pages/CustomerEmailVerification';
 const CustomerAddresses = lazy(() => import('../portals/customer/pages/CustomerPages').then((module) => ({ default: module.CustomerAddresses })));
 const CustomerPlaceholder = lazy(() => import('../portals/customer/pages/CustomerPages').then((module) => ({ default: module.CustomerPlaceholder })));
 const CustomerProfile = lazy(() => import('../portals/customer/pages/CustomerPages').then((module) => ({ default: module.CustomerProfile })));
@@ -76,6 +77,7 @@ const RestaurantDeliveryOrders = lazy(() => import('../portals/restaurant/pages/
 const RestaurantInventory = lazy(() => import('../portals/restaurant/pages/RestaurantInventory'));
 const RestaurantPOS = lazy(() => import('../portals/restaurant/pages/RestaurantPOS'));
 const RestaurantPayments = lazy(() => import('../portals/restaurant/pages/RestaurantPayments'));
+const RestaurantNotifications = lazy(() => import('../portals/restaurant/pages/RestaurantNotifications'));
 
 import ProtectedRoute from './ProtectedRoute';
 import { getUserRoles, useAuth } from '../context/AuthContext';
@@ -168,8 +170,9 @@ export default function AppRoutes() {
         <Route path="/qr/:token" element={<QrMenu />} />
         <Route path="/customer/login" element={<CustomerLogin />} />
         <Route path="/customer/register" element={<CustomerRegister />} />
+        <Route path="/customer/verify-email" element={<CustomerEmailVerification />} />
 
-        {/* Super Admin Login */}
+        {/* Original sign-in page with portal choices and the existing admin form. */}
         <Route
           path="/login"
           element={<AdminLogin />}
@@ -206,6 +209,7 @@ export default function AppRoutes() {
           />
 
           <Route path="dashboard" element={<RestaurantMembershipRoute permission="restaurant.dashboard.view"><RestaurantDashboard /></RestaurantMembershipRoute>} />
+          <Route path="notifications" element={<RestaurantMembershipRoute permission={['orders.view','orders.manage','orders.kitchen','reservations.view','reservations.manage','delivery_orders.view','payments.view','employees.view','branches.view','menu.view','tables.view']}><RestaurantNotifications /></RestaurantMembershipRoute>} />
           <Route path="menu" element={<RestaurantMembershipRoute permission="menu.view"><RestaurantMenu /></RestaurantMembershipRoute>} />
           <Route path="categories" element={<RestaurantMembershipRoute permission="menu.view"><RestaurantCategories /></RestaurantMembershipRoute>} />
           <Route path="branches" element={<RestaurantMembershipRoute permission="branches.view"><RestaurantBranches /></RestaurantMembershipRoute>} />

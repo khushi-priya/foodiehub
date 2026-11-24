@@ -509,7 +509,7 @@ export default function RestaurantMenu() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || "");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [availability, setAvailability] = useState("all");
 

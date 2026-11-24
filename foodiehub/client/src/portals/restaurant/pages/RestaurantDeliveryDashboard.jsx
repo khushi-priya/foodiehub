@@ -321,7 +321,7 @@ export default function RestaurantDeliveryDashboard() {
       if (watchId.current != null) await stopLocationSharing();
       await logout();
     } finally {
-      navigate("/restaurant/login", { replace: true });
+      navigate("/login", { replace: true });
     }
   };
   const employee = dashboard?.employee;
@@ -877,7 +877,7 @@ export default function RestaurantDeliveryDashboard() {
                                   </button>
                                 )}
                                 {delivery.deliveryStatus === "arriving_at_restaurant" && <button disabled={actingOn === delivery.assignmentId} onClick={() => actOnAssignment(delivery.assignmentId, "at_restaurant")} className="min-h-11 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white disabled:opacity-50">I’ve reached the restaurant</button>}
-                                {delivery.deliveryStatus === "at_restaurant" && (delivery.kitchenStatus !== "ready" ? <p className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Waiting for restaurant to prepare order. Pickup unlocks after the kitchen marks it ready.</p> : delivery.kitchenStatus !== "handed_over" ? <p className="w-full rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">Order is ready. Restaurant staff must confirm packed food handover before pickup.</p> : <button disabled={actingOn === delivery.assignmentId} onClick={() => actOnAssignment(delivery.assignmentId, "picked_up")} className="min-h-11 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white disabled:opacity-50">Confirm pickup</button>)}
+                                {delivery.deliveryStatus === "at_restaurant" && (!delivery.pickupReady ? <p className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Waiting for restaurant to prepare order. Pickup unlocks after the kitchen marks it ready.</p> : !delivery.handoverConfirmed ? <div className="w-full rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"><p>Order is ready for pickup. Please collect it from the restaurant.</p><p className="mt-1 text-xs">Restaurant staff must confirm packed food handover before pickup.</p></div> : <><p className="w-full rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">Order is ready for pickup. Please collect it from the restaurant.</p><button disabled={actingOn === delivery.assignmentId || delivery.deliveryStatus !== "at_restaurant" || !delivery.pickupReady || !delivery.handoverConfirmed} onClick={() => actOnAssignment(delivery.assignmentId, "picked_up")} className="min-h-11 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white disabled:opacity-50">Confirm pickup</button></>)}
                                 {delivery.deliveryStatus === "picked_up" && (
                                   <button
                                     disabled={

@@ -115,7 +115,7 @@ export default function CustomerLayout() {
     try {
       await logout();
     } finally {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
     }
   }
   useEffect(() => {

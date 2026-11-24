@@ -8,6 +8,7 @@ const { occupyForOrder, refreshAfterOrder, emitFloorEvent } = require('../../ser
 const { syncCommissionForOrder } = require('../../services/commission-ledger');
 const { notifySuperAdmins } = require('../../services/admin-notifications');
 const { createCustomerNotification } = require('../../services/customer-notifications');
+const { createRestaurantNotification } = require('../../services/restaurant-notifications');
 const { validateFoodCoupon, recordCouponReservation: recordFoodCouponReservation, changeOrderCouponStatus, reReserveOrderCoupon } = require('../../services/food-coupons');
 const { recordAuditEvent } = require('../../services/audit-log');
 
@@ -73,30 +74,43 @@ function qrTokenHash(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function resolveTableQrToken(token, transaction, { allowOccupied = false } = {}) {
-  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw fail(404, 'This table QR code is invalid or unavailable.');
+async function resolveRestaurantQrToken(token, transaction) {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw fail(404, 'This restaurant QR code is invalid or unavailable.');
+  let restaurant = await Restaurant.findOne({ where: { qrToken: token, ...RESTAURANT_PUBLIC }, transaction });
+  if (!restaurant) {
+    const oldTable = await RestaurantTable.findOne({ where: { qrToken: token }, attributes: ['restaurantId'], include: [{ model: Restaurant, as: 'restaurant', where: RESTAURANT_PUBLIC, required: true }], transaction });
+    restaurant = oldTable?.restaurant || null;
+  }
+  if (!restaurant) throw fail(404, 'This restaurant QR code is invalid or unavailable.');
+  return restaurant;
+}
+
+async function resolveSelectedDineInTable({ token, tableId, branchId, transaction, allowOccupied = false }) {
+  const restaurant = await resolveRestaurantQrToken(token, transaction);
+  if (typeof tableId !== 'string' || typeof branchId !== 'string') throw fail(400, 'Choose your restaurant branch and table before ordering.');
   const table = await RestaurantTable.findOne({
-    where: { qrToken: token, isActive: true, occupancyStatus: allowOccupied ? { [Op.in]: ['available', 'occupied'] } : 'available' },
-    include: [
-      { model: Restaurant, as: 'restaurant', where: RESTAURANT_PUBLIC, attributes: ['id', 'name', 'slug', 'logo'], required: true },
-      { model: Branch, as: 'branch', where: PUBLIC_BRANCH, attributes: ['id', 'restaurantId', 'name', 'city', 'isActive', 'dineInEnabled'], required: true },
-    ],
+    where: { id: tableId, restaurantId: restaurant.id, branchId, isActive: true, occupancyStatus: allowOccupied ? { [Op.in]: ['available', 'occupied'] } : 'available' },
+    include: [{ model: Branch, as: 'branch', where: { ...PUBLIC_BRANCH, restaurantId: restaurant.id }, attributes: ['id', 'restaurantId', 'name', 'city', 'isActive', 'dineInEnabled'], required: true }],
     transaction,
     ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}),
   });
-  if (!table || table.restaurantId !== table.branch.restaurantId) throw fail(404, 'This table QR code is invalid or unavailable.');
-  return table;
+  if (!table || table.restaurantId !== table.branch.restaurantId) throw fail(409, 'Choose an active, available table at this restaurant.');
+  return { ...table.toJSON(), restaurant, qrToken: restaurant.qrToken };
 }
 
 async function validateCartTable(cart, transaction) {
   if (!cart?.tableId) return null;
   const stored = await RestaurantTable.findOne({ where: { id: cart.tableId, restaurantId: cart.restaurantId, branchId: cart.branchId, isActive: true, occupancyStatus: { [Op.in]: ['available', 'occupied'] } }, attributes: ['qrToken'], transaction });
-  if (!stored?.qrToken || typeof cart.tableQrTokenHash !== 'string') throw fail(409, 'This table QR is no longer active. Clear the cart and scan the current table QR code.');
-  const expected = Buffer.from(qrTokenHash(stored.qrToken), 'hex');
+  const restaurant = await Restaurant.findOne({ where: { id: cart.restaurantId, ...RESTAURANT_PUBLIC }, attributes: ['id', 'qrToken'], transaction });
+  if (!stored || !restaurant?.qrToken || typeof cart.tableQrTokenHash !== 'string') throw fail(409, 'This table selection is no longer active. Clear the cart and choose an available table.');
+  const canonical = Buffer.from(qrTokenHash(restaurant.qrToken), 'hex');
   const actual = Buffer.from(cart.tableQrTokenHash, 'hex');
-  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) throw fail(409, 'This table QR has changed. Clear the cart and scan the current table QR code.');
-  const table = await resolveTableQrToken(stored.qrToken, transaction, { allowOccupied: true });
-  if (table.id !== cart.tableId) throw fail(409, 'This table QR no longer matches your cart. Clear the cart and scan again.');
+  const legacy = stored.qrToken ? Buffer.from(qrTokenHash(stored.qrToken), 'hex') : null;
+  const matches = actual.length === canonical.length && crypto.timingSafeEqual(actual, canonical)
+    || (legacy && actual.length === legacy.length && crypto.timingSafeEqual(actual, legacy));
+  if (!matches) throw fail(409, 'This table selection changed. Clear the cart and choose a table again.');
+  const table = await resolveSelectedDineInTable({ token: restaurant.qrToken, tableId: cart.tableId, branchId: cart.branchId, transaction, allowOccupied: true });
+  if (!actual.equals(canonical)) await cart.update({ tableQrTokenHash: qrTokenHash(restaurant.qrToken) }, { transaction });
   return table;
 }
 
@@ -214,11 +228,11 @@ exports.getCart = wrap(async (req, res) => {
 });
 
 exports.addItem = wrap(async (req, res) => {
-  const { restaurantId, branchId, menuItemId, variantOptionId = null, addonOptionIds = [], quantity = 1, tableQrToken } = req.body || {};
+  const { restaurantId, branchId, menuItemId, variantOptionId = null, addonOptionIds = [], quantity = 1, tableQrToken, tableId } = req.body || {};
   if (typeof menuItemId !== 'string') throw fail(400, 'A food item is required.');
   const result = await CustomerCart.sequelize.transaction(async (transaction) => {
     await User.findByPk(req.customer.id, { transaction, lock: transaction.LOCK.UPDATE });
-    const table = tableQrToken !== undefined ? await resolveTableQrToken(tableQrToken, transaction) : null;
+    const table = tableQrToken !== undefined ? await resolveSelectedDineInTable({ token: tableQrToken, tableId, branchId, transaction }) : null;
     const resolvedRestaurantId = table?.restaurantId || restaurantId;
     const resolvedBranchId = table?.branchId || branchId;
     if (typeof resolvedRestaurantId !== 'string' || typeof resolvedBranchId !== 'string') throw fail(400, 'Restaurant and branch are required.');
@@ -230,7 +244,7 @@ exports.addItem = wrap(async (req, res) => {
       if (cart.restaurantId !== resolvedRestaurantId || cart.branchId !== resolvedBranchId || (cart.tableId || null) !== (table?.id || null)) throw fail(409, 'Your cart is already tied to another restaurant, branch, or table. Clear it before switching.');
       if (Boolean(currentTable) !== Boolean(table)) throw fail(409, 'Your cart fulfilment cannot be changed. Clear the cart before switching.');
     }
-    if (!cart) cart = await CustomerCart.create({ customerId: req.customer.id, restaurantId: resolvedRestaurantId, branchId: resolvedBranchId, tableId: table?.id || null, tableQrTokenHash: table ? qrTokenHash(tableQrToken) : null }, { transaction });
+    if (!cart) cart = await CustomerCart.create({ customerId: req.customer.id, restaurantId: resolvedRestaurantId, branchId: resolvedBranchId, tableId: table?.id || null, tableQrTokenHash: table ? qrTokenHash(table.qrToken) : null }, { transaction });
     const rows = await CustomerCartItem.findAll({ where: { cartId: cart.id, menuItemId }, transaction, lock: transaction.LOCK.UPDATE });
     const same = rows.find((row) => sameSelection(row, variantOptionId, addonOptionIds));
     if (same) {
@@ -377,6 +391,7 @@ exports.createRazorpayOrder = wrap(async (req, res) => {
       createdNewOrder = true;
       await OrderItem.bulkCreate(orderItemSnapshots(details, order.id), { transaction });
       await createCustomerNotification({ app: req.app, customerId: req.customer.id, category: 'orders', title: 'Order placed', message: `Your order ${order.orderNumber} was placed and is awaiting payment.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `order-created:${order.id}`, transaction });
+      await createRestaurantNotification({ app: req.app, restaurantId: order.restaurantId, branchId: order.branchId, category: 'orders', title: 'New customer order', message: `Order ${order.orderNumber} was placed and is awaiting payment.`, href: `/restaurant/orders?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `order-created:${order.id}`, transaction });
       await recordFoodCouponReservation(details.coupon, req.customer.id, order, transaction, 'reserved');
       if (details.table) await occupyForOrder(details.table.id, transaction);
       totalCents = details.totalCents;
@@ -428,6 +443,7 @@ exports.verifyRazorpayPayment = wrap(async (req, res) => {
     await locked.update({ paymentStatus: 'paid', razorpayPaymentId: paymentId }, { transaction });
     await OrderPaymentAttempt.update({ gatewayPaymentId: paymentId, status: 'captured', capturedAt: new Date(), failureCode: null, failureDescription: null }, { where: { orderId: locked.id, gatewayOrderId }, transaction });
     await createCustomerNotification({ app: req.app, customerId: req.customer.id, category: 'payments', title: capturedAfterCancellation ? 'Payment captured for cancelled order' : 'Payment received', message: capturedAfterCancellation ? `A payment for cancelled order ${locked.orderNumber} was captured. Contact the restaurant to arrange a refund.` : `Payment for order ${locked.orderNumber} was verified.`, href: `/customer/orders/${locked.id}`, entityId: locked.id, dedupeKey: `payment-paid:${locked.id}`, transaction });
+    await createRestaurantNotification({ app: req.app, restaurantId: locked.restaurantId, branchId: locked.branchId, category: 'payments', title: 'Payment received', message: `Payment for order ${locked.orderNumber} was verified.`, href: `/restaurant/orders?search=${encodeURIComponent(locked.orderNumber)}`, entityId: locked.id, dedupeKey: `payment-paid:${locked.id}`, transaction });
     if (capturedAfterCancellation) return;
     await syncCommissionForOrder(locked, transaction);
     await changeOrderCouponStatus(locked.id, 'redeemed', transaction);
@@ -466,6 +482,7 @@ exports.recordRazorpayFailure = wrap(async (req, res) => {
     await order.update({ paymentStatus: 'failed' }, { transaction });
     await OrderPaymentAttempt.update({ gatewayPaymentId: paymentId, status: 'failed', failureCode: payment.error_code || null, failureDescription: String(payment.error_description || payment.error_reason || '').slice(0, 500) || null }, { where: { orderId: order.id, gatewayOrderId }, transaction });
     await createCustomerNotification({ app: req.app, customerId: req.customer.id, category: 'payments', title: 'Payment did not complete', message: `Payment for order ${order.orderNumber} was not completed. You can retry from order details.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `payment-failed:${order.id}:${paymentId}`, transaction });
+    await createRestaurantNotification({ app: req.app, restaurantId: order.restaurantId, branchId: order.branchId, category: 'payments', title: 'Payment failed', message: `Payment for order ${order.orderNumber} did not complete.`, href: `/restaurant/orders?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `payment-failed:${order.id}:${paymentId}`, transaction });
     await changeOrderCouponStatus(order.id, 'released', transaction);
     branchId = order.branchId;
     restaurantId = order.restaurantId;
@@ -514,6 +531,7 @@ exports.placeOrder = wrap(async (req, res) => {
       const order = await Order.create(orderValues(details, req.customer, key, 'cash_on_delivery'), { transaction });
       await OrderItem.bulkCreate(orderItemSnapshots(details, order.id), { transaction });
       await createCustomerNotification({ app: req.app, customerId: req.customer.id, category: 'orders', title: 'Order placed', message: `Your order ${order.orderNumber} was sent to the restaurant.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `order-created:${order.id}`, transaction });
+      await createRestaurantNotification({ app: req.app, restaurantId: order.restaurantId, branchId: order.branchId, category: 'orders', title: 'New customer order', message: `Order ${order.orderNumber} was placed.`, href: `/restaurant/orders?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `order-created:${order.id}`, transaction });
       await recordFoodCouponReservation(details.coupon, req.customer.id, order, transaction, 'redeemed');
       if (details.table) await occupyForOrder(details.table.id, transaction);
       await details.cart.destroy({ transaction });

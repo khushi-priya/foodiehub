@@ -90,7 +90,7 @@ export default function RestaurantDeliveryOrders() {
     totalPages: 1,
     total: 0,
   });
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || "");
   const [status, setStatus] = useState("");
   const [branchId, setBranchId] = useState("");
   const [loading, setLoading] = useState(true);

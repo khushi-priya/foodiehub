@@ -81,6 +81,16 @@ export function connectRestaurantSupportSocket(onEvent) {
   };
 }
 
+export function connectRestaurantNotificationSocket(onEvent) {
+  const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
+  const socket = io(apiOrigin, { withCredentials: true, transports: ['websocket', 'polling'] });
+  socket.on('restaurant:notification', onEvent);
+  return () => {
+    socket.off('restaurant:notification', onEvent);
+    socket.disconnect();
+  };
+}
+
 export function connectDeliverySocket(onEvent) {
   const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
   const socket = io(apiOrigin, { withCredentials: true, transports: ['websocket', 'polling'] });

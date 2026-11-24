@@ -9,6 +9,7 @@ const {
   ownerBranchWhere,
 } = require("../../services/branch-policy");
 const { assertBranchCapacity } = require("../../services/subscription-limits");
+const { createRestaurantNotification } = require("../../services/restaurant-notifications");
 
 const DAYS = [
   "Monday",
@@ -329,7 +330,7 @@ exports.create = handle(async (req, res) => {
         { isPrimary: false },
         { where: { restaurantId: req.restaurant.id }, transaction },
       );
-    return Branch.create(
+    const branch = await Branch.create(
       {
         restaurantId: req.restaurant.id,
         ...branchValues(req.body),
@@ -338,6 +339,8 @@ exports.create = handle(async (req, res) => {
       },
       { transaction },
     );
+    await createRestaurantNotification({ app: req.app, restaurantId: req.restaurant.id, branchId: branch.id, category: 'branch', title: 'Branch added', message: `${branch.name} was added to your restaurant.`, href: `/restaurant/branches?search=${encodeURIComponent(branch.name)}`, entityId: branch.id, dedupeKey: `branch-created:${branch.id}`, transaction });
+    return branch;
   });
   response(res, branch, 201);
 });

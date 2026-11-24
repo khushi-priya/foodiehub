@@ -5,10 +5,10 @@ exports.requireCustomer = async (req, res, next) => {
     const userId = req.session?.userId;
     if (!userId) return res.status(401).json({ success: false, message: 'Please sign in to continue.' });
     const customer = await User.findByPk(userId, {
-      attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'status'],
+      attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'status', 'emailVerifiedAt'],
       include: [{ model: Role, as: 'roles', where: { code: 'customer', scope: 'platform' }, attributes: ['id', 'code'], through: { attributes: [] }, required: true }],
     });
-    if (!customer || customer.status !== 'active') return res.status(403).json({ success: false, message: 'Customer access is required.' });
+    if (!customer || customer.status !== 'active' || !customer.emailVerifiedAt) return res.status(403).json({ success: false, message: 'Customer access is required. Verify your email before continuing.' });
     req.customer = customer;
     next();
   } catch (error) { next(error); }

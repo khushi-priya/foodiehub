@@ -6,6 +6,7 @@ const { syncCommissionForOrder } = require('../../services/commission-ledger');
 const { changeOrderCouponStatus } = require('../../services/food-coupons');
 const { deductRecipeStockForOrder } = require('../../services/inventory-stock');
 const { createCustomerNotification } = require('../../services/customer-notifications');
+const { createRestaurantNotification } = require('../../services/restaurant-notifications');
 const { recordAuditEvent } = require('../../services/audit-log');
 const { assertOrderTransition, assertKitchenTransition } = require('../../services/order-workflow');
 
@@ -18,7 +19,7 @@ const VALID_STATUSES = [
   'completed',
   'cancelled',
 ];
-const ORDER_QUERY_STATUSES = [...VALID_STATUSES, 'out_for_delivery'];
+const ORDER_QUERY_STATUSES = [...VALID_STATUSES, 'picked_up', 'out_for_delivery'];
 
 const sendError = (message, status = 400) => {
   const error = new Error(message);
@@ -472,6 +473,7 @@ exports.updateOrderStatus = async (req, res, next) => {
       const labels = { accepted: 'Order accepted', preparing: 'Preparation started', ready: 'Order ready', completed: 'Order completed', cancelled: 'Order cancelled', rejected: 'Order declined' };
       await createCustomerNotification({ app: req.app, customerId: order.customerId, category: 'orders', title: labels[status] || 'Order updated', message: `${order.orderNumber} is now ${status.replaceAll('_', ' ')}.`, href: `/customer/orders/${order.id}`, entityId: order.id, dedupeKey: `order-status:${order.id}:${status}`, transaction });
     }
+    if (['accepted', 'preparing', 'ready', 'cancelled', 'rejected'].includes(status)) await createRestaurantNotification({ app: req.app, restaurantId: order.restaurantId, branchId: order.branchId, category: ['preparing', 'ready'].includes(status) ? 'kitchen' : 'orders', title: status === 'ready' ? 'Order ready in kitchen' : status === 'preparing' ? 'Kitchen started preparing an order' : `Order ${status}`, message: `Order ${order.orderNumber} is ${status.replaceAll('_', ' ')}.`, href: `${status === 'preparing' || status === 'ready' ? '/restaurant/kitchen' : '/restaurant/orders'}?search=${encodeURIComponent(order.orderNumber)}`, entityId: order.id, dedupeKey: `order-status:${order.id}:${status}`, transaction });
     if (['cancelled', 'rejected'].includes(status) && order.orderType === 'delivery') {
       const assignments = await DeliveryAssignment.findAll({ where: { orderId: order.id, restaurantId: order.restaurantId, status: { [Op.in]: ['pending_acceptance', 'accepted', 'arriving_at_restaurant', 'at_restaurant', 'picked_up', 'on_the_way', 'at_customer'] } }, transaction, lock: transaction.LOCK.UPDATE });
       for (const assignment of assignments) {

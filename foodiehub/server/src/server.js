@@ -11,6 +11,7 @@ const { User, RestaurantMember, Role, Permission, EmployeeBranchAssignment, Bran
 const { reopenExpiredBranchClosures } = require('./services/scheduled-branch-closures');
 const { processTimedOutAssignments, processAutomaticAssignments } = require('./modules/restaurants/delivery-orders.controller');
 const { rejectClientRoomSubscriptions, restaurantRoomsForMembership } = require('./services/socket-auth');
+const { readSmtpConfig } = require('./services/customer-email-verification');
 
 const PORT = process.env.PORT || 5000;
 
@@ -35,13 +36,13 @@ io.use(async (socket, next) => {
     const memberships = await RestaurantMember.findAll({
       where: { userId, status: 'active' },
       include: [
-        { model: Role, as: 'role', attributes: ['code'], required: true, include: [{ model: Permission, as: 'permissions', where: { code: { [Op.in]: ['tables.view', 'orders.view', 'reservations.manage', 'support.view', 'support.create', 'delivery_orders.view', 'delivery_assignments.view', 'delivery_orders.view_assigned', 'delivery_tracking.view_branch'] } }, attributes: ['code'], through: { attributes: [] }, required: true }] },
+        { model: Role, as: 'role', attributes: ['code'], required: true, include: [{ model: Permission, as: 'permissions', where: { code: { [Op.in]: ['tables.view', 'orders.view', 'orders.manage', 'orders.manage_status', 'orders.kitchen', 'kitchen.update_status', 'reservations.view', 'reservations.manage', 'reservations.update', 'support.view', 'support.create', 'delivery_orders.view', 'delivery_assignments.view', 'delivery_orders.view_assigned', 'delivery_tracking.view_branch', 'payments.view', 'payments.transactions.view', 'employees.view', 'employees.manage', 'branches.view', 'branches.manage', 'menu.view'] } }, attributes: ['code'], through: { attributes: [] }, required: true }] },
         { model: EmployeeBranchAssignment, as: 'branchAssignments', where: { status: 'active' }, attributes: ['branchId'], required: false },
       ],
     });
     const rooms = userRoles.some((role) => role.code === 'customer') ? [`customer:${user.id}`] : [];
     if (userRoles.some((role) => role.code === 'super_admin')) rooms.push('super_admin');
-    for (const membership of memberships) {
+  for (const membership of memberships) {
       const branchIds = membership.role.code === 'restaurant_owner'
         ? (await Branch.findAll({ where: { restaurantId: membership.restaurantId }, attributes: ['id'], raw: true })).map((branch) => branch.id)
         : (membership.branchAssignments || []).map((assignment) => assignment.branchId);
@@ -61,6 +62,12 @@ async function startServer() {
     await sequelize.authenticate();
 
     console.log('FoodieHub MySQL connected successfully!');
+    try {
+      readSmtpConfig();
+      console.log('Customer email SMTP settings are valid; the connection will be verified before the first OTP email.');
+    } catch (error) {
+      console.warn(`Customer email SMTP is not ready (${error.code || 'SMTP_CONFIG_INVALID'}); OTP requests will return a safe service-unavailable response.`);
+    }
 
     // Create the session storage table if it doesn't exist
     await sessionStore.sync();

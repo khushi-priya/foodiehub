@@ -18,6 +18,7 @@ const {
   assertEmployeeCapacity,
 } = require("../../services/subscription-limits");
 const { invalidateRestaurantSockets } = require("../../services/socket-auth");
+const { createRestaurantNotification } = require("../../services/restaurant-notifications");
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const restaurantPermissionWhere = (codes) => ({
@@ -457,6 +458,7 @@ exports.createDeliveryRole = async (req, res, next) => {
       },
       { transaction },
     );
+    await createRestaurantNotification({ app: req.app, restaurantId: req.restaurant.id, category: 'staff', title: 'Staff member invited', message: `${firstName.trim()} was invited to join as ${role.name}.`, href: '/restaurant/employees', entityId: member.id, dedupeKey: `staff-invited:${member.id}`, transaction });
     await transaction.commit();
     res
       .status(201)

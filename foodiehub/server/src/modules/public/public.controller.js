@@ -1,10 +1,8 @@
 const { Op, fn, col } = require('sequelize');
-const QRCode = require('qrcode');
 const { Restaurant, Branch, RestaurantTable, MenuCategory, MenuItem, MenuItemOption } = require('../../models');
 const { branchIsOpen } = require('../../services/branch-availability');
 const { marketplaceBranchWhere } = require('../../services/marketplace-branch-policy');
-const { getPublicAppUrl } = require('../../utils/public-app-url');
-const { buildTableQrPayload } = require('../../utils/table-qr');
+const { buildRestaurantQrPayload } = require('../../utils/restaurant-qr');
 
 const PUBLIC_RESTAURANT = { approvalStatus: 'approved', listingStatus: 'published', marketplaceEnabled: true };
 const PUBLIC_BRANCH = marketplaceBranchWhere();
@@ -170,10 +168,7 @@ exports.restaurantBranches = handle(async (req, res) => {
 
 exports.restaurantQr = handle(async (req, res) => {
   const { restaurant } = await findListedRestaurant(req.params.slug);
-  const url = new URL(`/restaurants/${encodeURIComponent(restaurant.slug)}`, `${getPublicAppUrl()}/`);
-  const imageDataUrl = await QRCode.toDataURL(url.toString(), { errorCorrectionLevel: 'H', margin: 4, width: 480 });
-  const safeName = restaurant.slug.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'restaurant';
-  send(res, { restaurantName: restaurant.name, qrUrl: url.toString(), imageDataUrl, downloadName: `foodiehub-${safeName}-menu-qr.png` });
+  send(res, await buildRestaurantQrPayload(restaurant.id));
 });
 
 exports.restaurantBranchTables = handle(async (req, res) => {
@@ -181,7 +176,7 @@ exports.restaurantBranchTables = handle(async (req, res) => {
   const branch = selectBranch(branches, req.params.branchId);
   if (!branch.dineInEnabled) throw fail(409, 'This branch does not offer dine-in.');
   const tables = await RestaurantTable.findAll({
-    where: { restaurantId: restaurant.id, branchId: branch.id, isActive: true, occupancyStatus: 'available', qrToken: { [Op.ne]: null } },
+    where: { restaurantId: restaurant.id, branchId: branch.id, isActive: true, occupancyStatus: 'available' },
     attributes: ['id', 'tableNumber', 'seatingCapacity'],
     order: [['tableNumber', 'ASC']],
   });
@@ -194,21 +189,17 @@ exports.selectRestaurantTable = handle(async (req, res) => {
   if (!branch.dineInEnabled) throw fail(409, 'This branch does not offer dine-in.');
   const table = await RestaurantTable.findOne({
     where: { id: req.params.tableId, restaurantId: restaurant.id, branchId: branch.id, isActive: true, occupancyStatus: 'available' },
-    attributes: ['id', 'tableNumber', 'qrToken'],
+    attributes: ['id', 'tableNumber'],
   });
-  if (!table?.qrToken) throw fail(404, 'This table is not available for online dine-in ordering.');
-  const qr = await buildTableQrPayload(table);
-  send(res, { table: { id: table.id, number: table.tableNumber }, tableQrToken: table.qrToken, ...qr });
+  if (!table) throw fail(404, 'This table is not available for online dine-in ordering.');
+  const qr = await buildRestaurantQrPayload(restaurant.id);
+  send(res, { table: { id: table.id, number: table.tableNumber }, branch: { id: branch.id, name: branch.name }, tableQrToken: qr.qrId, ...qr });
 });
 
 exports.restaurantBranchQr = handle(async (req, res) => {
   const { restaurant, branches } = await findListedRestaurant(req.params.slug);
   const branch = selectBranch(branches, req.params.branchId);
-  const url = new URL(`/restaurants/${encodeURIComponent(restaurant.slug)}`, `${getPublicAppUrl()}/`);
-  url.searchParams.set('branchId', branch.id);
-  const imageDataUrl = await QRCode.toDataURL(url.toString(), { errorCorrectionLevel: 'H', margin: 4, width: 480 });
-  const safeName = `${restaurant.slug}-${branch.name}`.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'restaurant-menu';
-  send(res, { restaurantName: restaurant.name, branchName: branch.name, qrUrl: url.toString(), imageDataUrl, downloadName: `foodiehub-${safeName}-menu-qr.png` });
+  send(res, { ...(await buildRestaurantQrPayload(restaurant.id)), branchName: branch.name });
 });
 
 exports.restaurantMenu = handle(async (req, res) => {
@@ -235,25 +226,33 @@ exports.menuItemDetails = handle(async (req, res) => {
 
 exports.resolveTableQr = handle(async (req, res) => {
   const { token } = req.params;
-  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw fail(404, 'This table QR code is invalid or unavailable.');
-  const table = await RestaurantTable.findOne({
-    where: { qrToken: token, isActive: true, occupancyStatus: 'available' },
-    include: [
-      { model: Restaurant, as: 'restaurant', where: PUBLIC_RESTAURANT, attributes: ['name', 'description', 'logo'], required: true },
-      { model: Branch, as: 'branch', where: { ...PUBLIC_BRANCH, dineInEnabled: true }, attributes: ['id', 'restaurantId', 'name', 'addressLine', 'addressLine2', 'landmark', 'city', 'state', 'postalCode', 'country'], required: true },
-    ],
-  });
-  if (!table || table.branch.restaurantId !== table.restaurantId) throw fail(404, 'This table QR code is invalid or unavailable.');
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw fail(404, 'This restaurant QR code is invalid or unavailable.');
+  let restaurant = await Restaurant.findOne({ where: { qrToken: token, ...PUBLIC_RESTAURANT }, attributes: ['id', 'slug', 'name', 'description', 'logo', 'qrToken'] });
+  if (!restaurant) {
+    const legacyTable = await RestaurantTable.findOne({
+      where: { qrToken: token },
+      attributes: ['restaurantId'],
+      include: [{ model: Restaurant, as: 'restaurant', where: PUBLIC_RESTAURANT, attributes: ['id', 'slug', 'name', 'description', 'logo', 'qrToken'], required: true }],
+    });
+    restaurant = legacyTable?.restaurant || null;
+  }
+  if (!restaurant) throw fail(404, 'This restaurant QR code is invalid or unavailable.');
+  const branches = await Branch.findAll({ where: { restaurantId: restaurant.id, ...PUBLIC_BRANCH, dineInEnabled: true }, order: [['isPrimary', 'DESC'], ['createdAt', 'ASC']] });
+  const availableTables = branches.length ? await RestaurantTable.findAll({
+    where: { restaurantId: restaurant.id, branchId: { [Op.in]: branches.map((branch) => branch.id) }, isActive: true, occupancyStatus: 'available' },
+    attributes: ['id', 'branchId', 'tableNumber', 'seatingCapacity'], order: [['tableNumber', 'ASC']],
+  }) : [];
   const categories = await MenuCategory.findAll({
-    where: { isActive: true, [Op.or]: [{ scope: 'global', restaurantId: null }, { scope: 'restaurant', restaurantId: table.restaurantId }] },
+    where: { isActive: true, [Op.or]: [{ scope: 'global', restaurantId: null }, { scope: 'restaurant', restaurantId: restaurant.id }] },
     attributes: ['name', 'description', 'displayOrder'],
-    include: [{ model: MenuItem, as: 'items', where: { restaurantId: table.restaurantId, isAvailable: true, isActive: true, moderationStatus: 'clear' }, required: false, attributes: ['id', 'name', 'description', 'price', 'discountedPrice', 'imageUrl', 'foodType', 'dietaryTags', 'allergenTags', 'displayOrder', 'isAvailable'], include: [{ model: MenuItemOption, as: 'options', where: { restaurantId: table.restaurantId }, required: false, attributes: ['id', 'type', 'name', 'price', 'displayOrder'] }] }],
+    include: [{ model: MenuItem, as: 'items', where: { restaurantId: restaurant.id, isAvailable: true, isActive: true, moderationStatus: 'clear' }, required: false, attributes: ['id', 'name', 'description', 'price', 'discountedPrice', 'imageUrl', 'foodType', 'dietaryTags', 'allergenTags', 'displayOrder', 'isAvailable'], include: [{ model: MenuItemOption, as: 'options', where: { restaurantId: restaurant.id }, required: false, attributes: ['id', 'type', 'name', 'price', 'displayOrder'] }] }],
     order: [['displayOrder', 'ASC'], ['name', 'ASC'], [{ model: MenuItem, as: 'items' }, 'displayOrder', 'ASC'], [{ model: MenuItem, as: 'items' }, 'name', 'ASC']],
   });
   send(res, {
-    restaurant: { name: table.restaurant.name, description: table.restaurant.description, logo: table.restaurant.logo },
-    branch: { name: table.branch.name, address: [table.branch.addressLine, table.branch.addressLine2, table.branch.landmark, table.branch.city, table.branch.state, table.branch.postalCode, table.branch.country].filter(Boolean).join(', ') },
-    table: { number: table.tableNumber },
+    restaurant: { id: restaurant.id, slug: restaurant.slug, name: restaurant.name, description: restaurant.description, logo: restaurant.logo },
+    branches: branches.map((branch) => ({ id: branch.id, name: branch.name, address: [branch.addressLine, branch.addressLine2, branch.landmark, branch.city, branch.state, branch.postalCode, branch.country].filter(Boolean).join(', ') })),
+    tables: availableTables.map((table) => ({ id: table.id, branchId: table.branchId, number: table.tableNumber, seatingCapacity: table.seatingCapacity })),
+    tableQrToken: restaurant.qrToken,
     categories: categories.map((category) => ({ name: category.name, description: category.description, items: (category.items || []).filter((item) => item.isAvailable).map((item) => ({ id: item.id, name: item.name, description: item.description, price: item.price, discountedPrice: item.discountedPrice, imageUrl: item.imageUrl, foodType: item.foodType, dietaryTags: item.dietaryTags || [], allergenTags: item.allergenTags || [], options: (item.options || []).sort((a, b) => a.displayOrder - b.displayOrder).map((option) => ({ id: option.id, type: option.type, name: option.name, price: option.price })) })) })),
   });
 });

@@ -62,6 +62,7 @@ const PosOrderRequest = require('./PosOrderRequest');
 const PosTender = require('./PosTender');
 const CustomerNotification = require('./CustomerNotification');
 const CustomerNotificationPreference = require('./CustomerNotificationPreference');
+const RestaurantNotification = require('./RestaurantNotification');
 const CodCollection = require('./CodCollection');
 const CashHandover = require('./CashHandover');
 const CashHandoverItem = require('./CashHandoverItem');
@@ -119,6 +120,10 @@ RestaurantMember.belongsTo(User, {
   foreignKey: 'userId',
   as: 'user',
 });
+RestaurantMember.hasMany(RestaurantNotification, { foreignKey: 'restaurantMemberId', as: 'notifications' });
+RestaurantNotification.belongsTo(RestaurantMember, { foreignKey: 'restaurantMemberId', as: 'recipient' });
+RestaurantNotification.belongsTo(Restaurant, { foreignKey: 'restaurantId', as: 'restaurant' });
+RestaurantNotification.belongsTo(Branch, { foreignKey: 'branchId', as: 'branch' });
 
 Role.hasMany(RestaurantMember, {
   foreignKey: 'roleId',
@@ -427,6 +432,7 @@ module.exports = {
   CustomerWishlistItem,
   CustomerNotification,
   CustomerNotificationPreference,
+  RestaurantNotification,
   CustomerCart,
   CustomerCartItem,
   CustomerReorderRequest,
